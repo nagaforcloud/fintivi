@@ -10,6 +10,9 @@ import { rateLimitPlugin } from './plugins/rate-limit.js'
 import { authRoutes } from './routes/auth.js'
 import { userRoutes } from './routes/users.js'
 import { uploadRoutes } from './routes/uploads.js'
+import { accountRoutes } from './routes/accounts.js'
+import { transactionRoutes } from './routes/transactions.js'
+import { categoryRoutes } from './routes/categories.js'
 
 export function buildApp(opts?: { db?: Db }) {
   const app = Fastify({ logger: env.NODE_ENV !== 'test' })
@@ -34,6 +37,9 @@ export function buildApp(opts?: { db?: Db }) {
   app.register(authRoutes, { prefix: '/api/v1/auth' })
   app.register(userRoutes, { prefix: '/api/v1/users' })
   app.register(uploadRoutes, { prefix: '/api/v1' })
+  app.register(accountRoutes, { prefix: '/api/v1' })
+  app.register(transactionRoutes, { prefix: '/api/v1' })
+  app.register(categoryRoutes, { prefix: '/api/v1' })
 
   app.addHook('onClose', async () => {
     await close()

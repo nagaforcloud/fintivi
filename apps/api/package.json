@@ -17,6 +17,7 @@
     "@fastify/rate-limit": "^10.0.0",
     "@fastify/sensible": "^6.0.0",
     "@fintivi/auth": "workspace:*",
+    "@fintivi/core": "workspace:*",
     "@fintivi/db": "workspace:*",
     "@fintivi/parsers": "workspace:*",
     "drizzle-orm": "0.36.0",

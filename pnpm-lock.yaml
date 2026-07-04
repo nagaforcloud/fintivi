@@ -47,6 +47,9 @@ importers:
       '@fintivi/auth':
         specifier: workspace:*
         version: link:../../packages/auth
+      '@fintivi/core':
+        specifier: workspace:*
+        version: link:../../packages/core
       '@fintivi/db':
         specifier: workspace:*
         version: link:../../packages/db
@@ -108,6 +111,25 @@ importers:
         version: 2.1.4(@types/node@22.9.0)
 
   packages/config: {}
+
+  packages/core:
+    dependencies:
+      '@fintivi/db':
+        specifier: workspace:*
+        version: link:../db
+      drizzle-orm:
+        specifier: 0.36.0
+        version: 0.36.0(postgres@3.4.4)
+    devDependencies:
+      '@fintivi/config':
+        specifier: workspace:*
+        version: link:../config
+      typescript:
+        specifier: 5.6.3
+        version: 5.6.3
+      vitest:
+        specifier: 2.1.4
+        version: 2.1.4(@types/node@22.9.0)
 
   packages/db:
     dependencies:
