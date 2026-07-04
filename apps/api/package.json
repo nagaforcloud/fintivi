@@ -1,0 +1,26 @@
+{
+  "name": "@fintivi/api",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@fastify/cors": "^10.0.0",
+    "@fastify/env": "^5.0.0",
+    "@fastify/jwt": "^9.0.0",
+    "@fastify/rate-limit": "^10.0.0",
+    "@fastify/sensible": "^6.0.0",
+    "fastify": "^5.0.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@fintivi/config": "workspace:*",
+    "tsx": "4.19.1",
+    "typescript": "5.6.3",
+    "vitest": "2.1.4"
+  }
+}

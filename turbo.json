@@ -1,0 +1,23 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "globalEnv": [
+    "DATABASE_URL",
+    "JWT_ACCESS_SECRET",
+    "REFRESH_TOKEN_SECRET",
+    "PHONE_HASH_PEPPER",
+    "OTP_PROVIDER",
+    "GOOGLE_CLIENT_ID",
+    "GOOGLE_CLIENT_SECRET",
+    "GOOGLE_REDIRECT_URI",
+    "PORT",
+    "NODE_ENV",
+    "HOST"
+  ],
+  "tasks": {
+    "build": { "dependsOn": ["^build"] },
+    "dev": { "cache": false, "persistent": true },
+    "lint": {},
+    "typecheck": { "dependsOn": ["^build"] },
+    "test": { "dependsOn": ["^build"] }
+  }
+}
