@@ -188,7 +188,7 @@ export async function authRoutes(app: FastifyInstance) {
   })
 
   app.get('/google/start', async (_request, reply) => {
-    return reply.redirect(302, getGoogleAuthUrl())
+    return reply.redirect(getGoogleAuthUrl(), 302)
   })
 
   app.get('/google/callback', async (request, reply) => {

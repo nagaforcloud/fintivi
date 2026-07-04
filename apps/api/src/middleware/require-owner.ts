@@ -1,10 +1,8 @@
 import type { preHandlerHookHandler } from 'fastify'
 import { eq, and } from 'drizzle-orm'
 
-export function requireOwner(
-  table: { id: unknown; userId: unknown },
-  idParamName: string,
-): preHandlerHookHandler {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function requireOwner(table: any, idParamName: string): preHandlerHookHandler {
   return async function (request, reply) {
     const db = request.server.db
     const id = (request.params as Record<string, string>)[idParamName]

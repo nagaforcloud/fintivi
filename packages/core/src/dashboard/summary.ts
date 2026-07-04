@@ -73,7 +73,7 @@ export async function getDashboardSummary(
       postedAt: transactions.postedAt,
       description: transactions.description,
       amountMinor: transactions.amountMinor,
-      accountName: accounts.name,
+      accountName: sql<string>`COALESCE(${accounts.name}, '')`,
     })
       .from(transactions)
       .leftJoin(accounts, eq(transactions.accountId, accounts.id))
