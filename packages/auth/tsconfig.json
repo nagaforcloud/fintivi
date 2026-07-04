@@ -1,0 +1,7 @@
+{
+  "extends": "@fintivi/config/tsconfig/base.json",
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "include": ["src/**/*", "tests/**/*"]
+}
