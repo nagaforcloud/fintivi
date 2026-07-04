@@ -13,3 +13,6 @@ export {
   updateCategoryRule,
   deleteCategoryRule,
 } from './categories/service.js'
+
+export { getDashboardSummary } from './dashboard/summary.js'
+export type { DashboardSummary } from './dashboard/summary.js'
