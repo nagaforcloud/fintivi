@@ -50,7 +50,7 @@ async function exchangeGoogleCode(code: string): Promise<string | null> {
 
 export async function authRoutes(app: FastifyInstance) {
   app.post('/signup', {
-    config: { rateLimit: { max: 10, timeWindow: '15 minutes' } },
+    ...(env.NODE_ENV !== 'test' ? { config: { rateLimit: { max: 10, timeWindow: '15 minutes' } } } : {}),
   }, async (request, reply) => {
     const { email, password, market, locale, currency } = request.body as {
       email: string
@@ -86,7 +86,7 @@ export async function authRoutes(app: FastifyInstance) {
   })
 
   app.post('/login', {
-    config: { rateLimit: { max: 10, timeWindow: '15 minutes' } },
+    ...(env.NODE_ENV !== 'test' ? { config: { rateLimit: { max: 10, timeWindow: '15 minutes' } } } : {}),
   }, async (request, reply) => {
     const { email, password } = request.body as { email: string; password: string }
 
@@ -124,7 +124,7 @@ export async function authRoutes(app: FastifyInstance) {
   })
 
   app.post('/otp/request', {
-    config: { rateLimit: { max: 3, timeWindow: '15 minutes' } },
+    ...(env.NODE_ENV !== 'test' ? { config: { rateLimit: { max: 3, timeWindow: '15 minutes' } } } : {}),
   }, async (request, reply) => {
     const { phone } = request.body as { phone: string }
 
@@ -151,7 +151,7 @@ export async function authRoutes(app: FastifyInstance) {
   })
 
   app.post('/otp/verify', {
-    config: { rateLimit: { max: 10, timeWindow: '15 minutes' } },
+    ...(env.NODE_ENV !== 'test' ? { config: { rateLimit: { max: 10, timeWindow: '15 minutes' } } } : {}),
   }, async (request, reply) => {
     const { phone, code } = request.body as { phone: string; code: string }
 

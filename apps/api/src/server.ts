@@ -2,12 +2,14 @@ import Fastify from 'fastify'
 import cors from '@fastify/cors'
 import cookie from '@fastify/cookie'
 import sensible from '@fastify/sensible'
+import multipart from '@fastify/multipart'
 import { createDb, type Db } from '@fintivi/db'
 import { env } from './env.js'
 import { authPlugin } from './plugins/auth.js'
 import { rateLimitPlugin } from './plugins/rate-limit.js'
 import { authRoutes } from './routes/auth.js'
 import { userRoutes } from './routes/users.js'
+import { uploadRoutes } from './routes/uploads.js'
 
 export function buildApp(opts?: { db?: Db }) {
   const app = Fastify({ logger: env.NODE_ENV !== 'test' })
@@ -21,6 +23,7 @@ export function buildApp(opts?: { db?: Db }) {
   app.register(cors)
   app.register(cookie)
   app.register(sensible)
+  app.register(multipart, { limits: { fileSize: 20 * 1024 * 1024 } })
   app.register(authPlugin)
   app.register(rateLimitPlugin)
 
@@ -30,6 +33,7 @@ export function buildApp(opts?: { db?: Db }) {
 
   app.register(authRoutes, { prefix: '/api/v1/auth' })
   app.register(userRoutes, { prefix: '/api/v1/users' })
+  app.register(uploadRoutes, { prefix: '/api/v1' })
 
   app.addHook('onClose', async () => {
     await close()

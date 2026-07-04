@@ -2,6 +2,7 @@ import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
   test: {
+    fileParallelism: false,
     env: {
       DATABASE_URL: 'postgres://fintivi:fintivi@localhost:5432/fintivi',
       JWT_ACCESS_SECRET: 'a'.repeat(32),

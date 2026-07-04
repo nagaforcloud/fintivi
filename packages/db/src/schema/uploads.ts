@@ -1,5 +1,5 @@
 import {
-  pgTable, text, bigint, integer, timestamp, index,
+  pgTable, text, bigint, integer, timestamp, index, jsonb,
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { uploadStatusEnum } from '../enums';
@@ -15,6 +15,7 @@ export const uploadJobs = pgTable(
     mime: text('mime').notNull(),
     status: uploadStatusEnum('status').notNull().default('queued'),
     error: text('error'),
+    metadata: jsonb('metadata'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }),
   },

@@ -12,11 +12,12 @@ beforeAll(async () => {
   const connection = createDb(dbUrl)
   db = connection.db
   close = connection.close
+  await db.execute(sql`TRUNCATE TABLE otp_attempts, audit_logs, sessions, auth_identities, users RESTART IDENTITY CASCADE`)
   app = buildApp({ db })
 })
 
 afterAll(async () => {
-  await db.execute(sql`TRUNCATE TABLE audit_logs, sessions, auth_identities, users RESTART IDENTITY CASCADE`)
+  await db.execute(sql`TRUNCATE TABLE otp_attempts, audit_logs, sessions, auth_identities, users RESTART IDENTITY CASCADE`)
   await app.close()
   await close()
 })
