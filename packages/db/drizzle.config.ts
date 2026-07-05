@@ -5,7 +5,7 @@ export default {
   out: './migrations',
   dialect: 'sqlite',
   dbCredentials: {
-    url: process.env.DATABASE_URL ?? 'file:./data/fintivi.db',
+    url: process.env.DATABASE_URL ?? 'file:../../data/fintivi.db',
   },
   strict: true,
   verbose: true,
