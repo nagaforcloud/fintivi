@@ -6,7 +6,8 @@
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint ."
   },
   "dependencies": {
     "@fastify/cookie": "^10.0.0",
@@ -20,6 +21,7 @@
     "@fintivi/core": "workspace:*",
     "@fintivi/db": "workspace:*",
     "@fintivi/parsers": "workspace:*",
+    "dotenv": "^17.4.2",
     "drizzle-orm": "0.36.0",
     "fastify": "^5.0.0",
     "fastify-plugin": "^5.0.0",

@@ -16,6 +16,7 @@
 - **Rotation:** Each use of a refresh token returns a new token pair. The old token is invalidated.
 - **Reuse detection:** If a previously rotated token is reused, the session is revoked and `401 TOKEN_REUSED` is returned (prevents token theft).
 - Stored as SHA-256 hash in the `sessions` table — raw token never persisted.
+- **Rate limit:** 30 refreshes per user per hour.
 
 ### Session Management
 
@@ -26,9 +27,10 @@
 
 ### OTP Authentication
 
-- Phone numbers are hashed with `PHONE_HASH_PEPPER` before storage using SHA-256.
-- OTP codes are stored as SHA-256 hashes — plaintext code is never stored.
-- OTP rate limited to 3 requests per 15 minutes per phone (in-app limiter using `otp_attempts` table).
+- Phone numbers are hashed with `HMAC(PHONE_HASH_PEPPER, phone_e164)` — not plain SHA-256.
+- OTP codes are stored as bcrypt hashes — plaintext code is never stored.
+- OTP rate limited to 3 requests per phone per 15 minutes (application-level limiter using `otp_attempts` table).
+- OTP rate limited to 10 requests per IP per hour.
 - OTP codes expire (configurable via auth package).
 - In test/dev mode with `OTP_PROVIDER=test`, codes are returned in the response for convenience.
 
@@ -91,12 +93,13 @@ Resources using ownership checks:
 | POST /auth/signup | 10 | 15 minutes | Disabled in test |
 | POST /auth/login | 10 | 15 minutes | Disabled in test |
 | POST /auth/otp/verify | 10 | 15 minutes | Disabled in test |
+| POST /auth/refresh | 30 | per hour per user | Active in all environments |
 
 ### Application-Level Limits (always active)
 
 | Route | Limit | Window | Mechanism |
 |-------|-------|--------|-----------|
-| POST /auth/otp/request | 3 | 15 minutes | `otp_attempts` table, active in all environments |
+| POST /auth/otp/request | 3 / 10 | 15 min per phone, 1 hour per IP | `otp_attempts` table, active in all environments |
 | POST /uploads | 20 files | per day per user | Count query on `upload_jobs` table |
 | GET /uploads/:jobId/stream | 5 concurrent | per user | In-memory counter |
 
@@ -109,9 +112,12 @@ Resources using ownership checks:
 | Check | Implementation |
 |-------|---------------|
 | Extension whitelist | `.csv`, `.pdf`, `.xls`, `.xlsx` |
-| MIME type | Validated from multipart upload |
+| Macro extension rejection | `.xlsm`, `.xlsb`, `.xla`, `.xlam` rejected |
+| MIME type | Validated against allowed MIME types per extension |
 | File size limit | 20 MB (`20 * 1024 * 1024` bytes), enforced by `@fastify/multipart` |
-| Content validation | Parser validates file structure after upload |
+| Content signature (magic bytes) | PDF: `%PDF`, XLS: CFB (`D0CF11E0`), XLSX: PK zip (`PK\x03\x04`) |
+| CSV format check | Content verified for comma presence |
+| CSV formula neutralization | Text cells starting with `=`, `+`, `-`, `@`, `\t`, `\r` prefixed with `'` in preview |
 
 ### Supported Formats
 
@@ -143,6 +149,19 @@ All sensitive actions are logged to the `audit_logs` table via `writeAuditLog()`
 | `otp_verify` | Successful OTP verification |
 | `google_link` | Google OAuth account link |
 | `logout` | Session revocation |
+| `refresh_token_reuse` | Detected refresh token reuse |
+| `account_create` | Account creation |
+| `account_update` | Account update (logs changed fields) |
+| `account_delete` | Account deletion |
+| `upload_create` | File upload started |
+| `upload_confirm` | Upload confirmed and imported |
+| `upload_failure` | Upload processing failed |
+| `transaction_update` | Transaction category/notes update |
+| `transaction_split` | Transaction split |
+| `transaction_delete` | Transaction deletion |
+| `category_rule_create` | Category rule creation |
+| `category_rule_update` | Category rule update |
+| `category_rule_delete` | Category rule deletion |
 
 Each audit entry records:
 - `userId` — who performed the action
@@ -169,9 +188,11 @@ Each audit entry records:
 
 - **No secrets in logs:** Logger is disabled when `NODE_ENV=test`. Passwords are never logged.
 - **No secrets in code:** All secrets are env-var based, validated at startup via Zod schema.
-- **Password hashing:** Passwords are hashed using a dedicated auth package (not stored in cleartext).
-- **Phone hashing:** Phone numbers are SHA-256 hashed with pepper before storage.
+- **Password hashing:** Passwords are hashed using bcrypt with cost 12 (not stored in cleartext).
+- **Phone hashing:** Phone numbers are HMAC-SHA256 hashed with pepper before storage.
 - **Token hashing:** Refresh tokens are SHA-256 hashed before database storage.
+- **OTP hashing:** OTP codes are bcrypt hashed (cost 10) before storage.
+- **Upload validation:** MIME types, magic bytes, macro rejection, and CSV formula neutralization.
 
 ---
 
@@ -180,9 +201,12 @@ Each audit entry records:
 | Threat | Mitigation |
 |--------|-----------|
 | Brute force login | 10 requests/15min rate limit |
-| OTP brute force | 3 requests/15min rate limit, OTP expiry |
-| Refresh token theft | Rotation + reuse detection |
+| OTP brute force | 3 requests/15min per phone, 10/hour per IP, OTP expiry, max 5 verify attempts |
+| OTP enumeration | HMAC-hashed phone numbers, generic error messages |
+| Refresh token theft | Rotation + reuse detection, 30/hour per user rate limit |
 | Cross-user data access | Ownership middleware, user-scoped queries, 404 on not-found |
-| Upload abuse | 20 files/day limit, file type validation, 20MB limit |
+| Upload abuse | 20 files/day limit, file type validation (ext + MIME + magic bytes), 20MB limit, macro rejection |
 | Session hijacking | JWT expiry (15min), refresh token rotation |
 | Information disclosure | 404 instead of 403, no raw secrets in logs |
+| CSV formula injection | Cell neutralization in preview (prefix formula chars with `'`) |
+| Excel macro abuse | Reject `.xlsm`, `.xlsb`, `.xla`, `.xlam` extensions |

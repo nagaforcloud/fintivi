@@ -3,6 +3,7 @@ import cors from '@fastify/cors'
 import cookie from '@fastify/cookie'
 import sensible from '@fastify/sensible'
 import multipart from '@fastify/multipart'
+import { sql } from 'drizzle-orm'
 import { createDb, type Db } from '@fintivi/db'
 import { env } from './env.js'
 import { authPlugin } from './plugins/auth.js'
@@ -24,7 +25,8 @@ export function buildApp(opts?: { db?: Db }) {
 
   app.decorate('db', db)
 
-  app.register(cors)
+  const corsOrigins = env.CORS_ORIGIN.split(',').map((origin) => origin.trim()).filter(Boolean)
+  app.register(cors, { origin: corsOrigins })
   app.register(cookie)
   app.register(sensible)
   app.register(multipart, { limits: { fileSize: 20 * 1024 * 1024 } })
@@ -33,6 +35,17 @@ export function buildApp(opts?: { db?: Db }) {
 
   app.get('/api/v1/health', async (_request, _reply) => {
     return { data: { ok: true } }
+  })
+
+  app.get('/api/v1/health/ready', async (_request, reply) => {
+    try {
+      await db.execute(sql`SELECT 1`)
+      return reply.send({ data: { ok: true, db: 'connected' } })
+    } catch {
+      return reply.status(503).send({
+        error: { code: 'SERVICE_UNAVAILABLE', message: 'Database not ready' },
+      })
+    }
   })
 
   app.register(authRoutes, { prefix: '/api/v1/auth' })

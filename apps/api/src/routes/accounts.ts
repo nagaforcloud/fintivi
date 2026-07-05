@@ -3,6 +3,7 @@ import { eq } from 'drizzle-orm'
 import { accounts } from '@fintivi/db/schema'
 import { requireAuth } from '../middleware/require-auth.js'
 import { requireOwner } from '../middleware/require-owner.js'
+import { writeAuditLog } from '../lib/audit.js'
 
 export async function accountRoutes(app: FastifyInstance) {
   app.get('/accounts', { preHandler: [requireAuth] }, async (request, reply) => {
@@ -43,6 +44,8 @@ export async function accountRoutes(app: FastifyInstance) {
       balanceMinor: body.balanceMinor ?? 0,
     }).returning()
 
+    await writeAuditLog(db, userId, 'account_create', { accountId: row!.id, name: body.name }, request.ip)
+
     return reply.status(201).send({ data: row })
   })
 
@@ -50,6 +53,7 @@ export async function accountRoutes(app: FastifyInstance) {
     preHandler: [requireAuth, requireOwner(accounts, 'id')],
   }, async (request, reply) => {
     const db = request.server.db
+    const userId = request.user.id
     const { id } = request.params as { id: string }
     const body = request.body as {
       name?: string
@@ -81,6 +85,8 @@ export async function accountRoutes(app: FastifyInstance) {
       .where(eq(accounts.id, id))
       .returning()
 
+    await writeAuditLog(db, userId, 'account_update', { accountId: id, updates: Object.keys(updates) }, request.ip)
+
     return reply.send({ data: row })
   })
 
@@ -88,10 +94,13 @@ export async function accountRoutes(app: FastifyInstance) {
     preHandler: [requireAuth, requireOwner(accounts, 'id')],
   }, async (request, reply) => {
     const db = request.server.db
+    const userId = request.user.id
     const { id } = request.params as { id: string }
 
     await db.delete(accounts)
       .where(eq(accounts.id, id))
+
+    await writeAuditLog(db, userId, 'account_delete', { accountId: id }, request.ip)
 
     return reply.send({ data: { ok: true } })
   })

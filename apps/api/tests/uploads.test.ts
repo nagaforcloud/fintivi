@@ -16,9 +16,9 @@ let tokenA: string
 let tokenB: string
 let accountId: string
 
-function buildMultipartBody(filename: string, content: string | Buffer, fieldName = 'file'): { body: Buffer; contentType: string } {
+function buildMultipartBody(filename: string, content: string | Buffer, fieldName = 'file', fileMime = 'application/octet-stream'): { body: Buffer; contentType: string } {
   const boundary = '----TestBoundary12345'
-  const header = `--${boundary}\r\nContent-Disposition: form-data; name="${fieldName}"; filename="${filename}"\r\nContent-Type: application/octet-stream\r\n\r\n`
+  const header = `--${boundary}\r\nContent-Disposition: form-data; name="${fieldName}"; filename="${filename}"\r\nContent-Type: ${fileMime}\r\n\r\n`
   const footer = `\r\n--${boundary}--\r\n`
   const body = Buffer.concat([
     Buffer.from(header, 'utf-8'),
@@ -101,6 +101,45 @@ describe('POST /api/v1/uploads', () => {
     expect(res.json().error.code).toBe('VALIDATION_ERROR')
   })
 
+  it('rejects macro-enabled Excel uploads', async () => {
+    const { body, contentType } = buildMultipartBody('macro.xlsm', Buffer.from('PK\x03\x04'))
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/uploads',
+      headers: { authorization: `Bearer ${tokenA}`, 'content-type': contentType },
+      body,
+    })
+
+    expect(res.statusCode).toBe(400)
+    expect(res.json().error.message).toContain('macro')
+  })
+
+  it('rejects files whose MIME type does not match the extension', async () => {
+    const { body, contentType } = buildMultipartBody('statement.pdf', Buffer.from('%PDF-1.7'), 'file', 'text/plain')
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/uploads',
+      headers: { authorization: `Bearer ${tokenA}`, 'content-type': contentType },
+      body,
+    })
+
+    expect(res.statusCode).toBe(400)
+    expect(res.json().error.message).toContain('Invalid MIME type')
+  })
+
+  it('rejects files whose content signature does not match the extension', async () => {
+    const { body, contentType } = buildMultipartBody('statement.pdf', Buffer.from('not a pdf'), 'file', 'application/pdf')
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/uploads',
+      headers: { authorization: `Bearer ${tokenA}`, 'content-type': contentType },
+      body,
+    })
+
+    expect(res.statusCode).toBe(400)
+    expect(res.json().error.message).toContain('does not match')
+  })
+
   it('valid CSV upload creates upload_jobs row with queued status', async () => {
     const { body, contentType } = buildMultipartBody('test.csv', validCsv)
     const res = await app.inject({
@@ -122,6 +161,28 @@ describe('POST /api/v1/uploads', () => {
     const events = await db.select().from(uploadJobEvents).where(eq(uploadJobEvents.jobId, jobId)).orderBy(uploadJobEvents.createdAt)
     expect(events.length).toBeGreaterThanOrEqual(4)
     expect(events[0]!.stage).toBe('queued')
+  })
+
+  it('does not count old uploads toward the daily upload limit', async () => {
+    const oldDate = new Date(Date.now() - 48 * 60 * 60 * 1000)
+    await db.insert(uploadJobs).values(Array.from({ length: 20 }, (_, index) => ({
+      userId: userBId,
+      fileName: `old-${index}.csv`,
+      fileSize: 10,
+      mime: 'text/csv',
+      status: 'completed' as const,
+      createdAt: oldDate,
+    })))
+
+    const { body, contentType } = buildMultipartBody('today.csv', validCsv)
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/uploads',
+      headers: { authorization: `Bearer ${tokenB}`, 'content-type': contentType },
+      body,
+    })
+
+    expect(res.statusCode).toBe(201)
   })
 })
 
@@ -244,6 +305,26 @@ describe('GET /api/v1/uploads/:jobId/preview', () => {
     expect(data.transactions.length).toBeGreaterThanOrEqual(1)
   })
 
+  it('neutralizes CSV formulas in preview responses', async () => {
+    const csv = 'date,description,amount\n2024-03-01,=2+3,-1000'
+    const { body, contentType } = buildMultipartBody('formula-preview.csv', csv)
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/api/v1/uploads',
+      headers: { authorization: `Bearer ${tokenA}`, 'content-type': contentType },
+      body,
+    })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/v1/uploads/${createRes.json().data.jobId}/preview`,
+      headers: { authorization: `Bearer ${tokenA}` },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json().data.transactions[0].description).toBe("'=2+3")
+  })
+
   it('returns 404 for non-owner', async () => {
     const { body, contentType } = buildMultipartBody('preview-owner.csv', validCsv)
     const createRes = await app.inject({
@@ -299,5 +380,41 @@ describe('POST /api/v1/uploads/:jobId/confirm', () => {
 
     expect(confirmRes2.statusCode).toBe(400)
     expect(confirmRes2.json().error.code).toBe('INVALID_STATE')
+  })
+
+  it('neutralizes CSV formulas before persisting imported transactions', async () => {
+    const csv = 'date,description,amount\n2024-03-01,=2+3,-1000'
+    const { body, contentType } = buildMultipartBody('formula-test.csv', csv)
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/api/v1/uploads',
+      headers: { authorization: `Bearer ${tokenA}`, 'content-type': contentType },
+      body,
+    })
+
+    const jobId = createRes.json().data.jobId
+    const jobRes = await app.inject({
+      method: 'GET',
+      url: `/api/v1/uploads/${jobId}`,
+      headers: { authorization: `Bearer ${tokenA}` },
+    })
+    expect(jobRes.statusCode).toBe(200)
+    expect(jobRes.json().data.metadata.transactions[0].description).toBe("'=2+3")
+    expect(jobRes.json().data.metadata.transactions[0].raw).toBeUndefined()
+
+    const confirmRes = await app.inject({
+      method: 'POST',
+      url: `/api/v1/uploads/${jobId}/confirm`,
+      headers: { authorization: `Bearer ${tokenA}`, 'content-type': 'application/json' },
+      body: { accountId },
+    })
+
+    expect(confirmRes.statusCode).toBe(200)
+    const [row] = await db.select().from(transactions).where(and(
+      eq(transactions.userId, userId),
+      eq(transactions.accountId, accountId),
+      eq(transactions.amountMinor, -100000),
+    )).limit(1)
+    expect(row?.description).toBe("'=2+3")
   })
 })

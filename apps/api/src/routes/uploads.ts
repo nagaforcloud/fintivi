@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify'
-import { eq, and } from 'drizzle-orm'
+import { eq, and, gte } from 'drizzle-orm'
 import { uploadJobs, transactions, accounts } from '@fintivi/db/schema'
 import { dispatchParser } from '@fintivi/parsers'
 import { requireAuth } from '../middleware/require-auth.js'
@@ -10,15 +10,65 @@ import {
   createSSEStream, replayJobEvents, getJobEmitter,
   getUserStreamCount, incrementUserStreams, decrementUserStreams,
 } from '../lib/sse.js'
+import { writeAuditLog } from '../lib/audit.js'
 
 const MAX_FILE_SIZE = 20 * 1024 * 1024
 const ALLOWED_EXTENSIONS = ['.csv', '.pdf', '.xls', '.xlsx']
 const MAX_DAILY_UPLOADS = 20
 const MAX_CONCURRENT_STREAMS = 5
 
+// MIME type map for allowed extensions
+const ALLOWED_MIMES: Record<string, string[]> = {
+  '.csv': ['text/csv', 'text/plain', 'application/csv', 'application/octet-stream'],
+  '.pdf': ['application/pdf'],
+  '.xls': ['application/vnd.ms-excel', 'application/octet-stream'],
+  '.xlsx': ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'application/octet-stream'],
+}
+
+// Magic bytes for content signature validation
+const MAGIC_BYTES: Record<string, Uint8Array[]> = {
+  '.pdf': [new Uint8Array([0x25, 0x50, 0x44, 0x46])], // %PDF
+  '.xls': [new Uint8Array([0xD0, 0xCF, 0x11, 0xE0])], // CFB
+  '.xlsx': [new Uint8Array([0x50, 0x4B, 0x03, 0x04])], // PK zip
+}
+
+// Excel macro-enabled extensions to reject
+const MACRO_EXTENSIONS = ['.xlsm', '.xlsb', '.xla', '.xlam']
+
 function getExtension(filename: string): string {
   const idx = filename.lastIndexOf('.')
   return idx === -1 ? '' : filename.slice(idx).toLowerCase()
+}
+
+function hasValidMagicBytes(buffer: Buffer, ext: string): boolean {
+  const magic = MAGIC_BYTES[ext]
+  if (!magic) return true // no magic check needed (e.g., CSV)
+  return magic.some((sig) => {
+    if (buffer.length < sig.length) return false
+    return sig.every((b, i) => buffer[i] === b)
+  })
+}
+
+function containsExcelMacro(filename: string): boolean {
+  const ext = getExtension(filename)
+  return MACRO_EXTENSIONS.includes(ext)
+}
+
+// Neutralize CSV formula injection in text cells
+const FORMULA_START = /^[=+\-@\t\r]/
+function neutralizeCsvFormula(value: string): string {
+  if (FORMULA_START.test(value)) {
+    return "'" + value
+  }
+  return value
+}
+
+// Check if file content is a CSV by examining first few bytes for printable ASCII
+function isLikelyCsv(buffer: Buffer): boolean {
+  const firstBytes = buffer.subarray(0, Math.min(512, buffer.length))
+  const text = firstBytes.toString('utf-8').toLowerCase()
+  // CSV files typically have commas and newlines
+  return text.includes(',') || text.includes(';')
 }
 
 export async function uploadRoutes(app: FastifyInstance) {
@@ -41,10 +91,28 @@ export async function uploadRoutes(app: FastifyInstance) {
       filename = file.filename
       mimetype = file.mimetype || 'application/octet-stream'
       const ext = getExtension(filename)
+
+      // Reject macro-enabled extensions
+      if (containsExcelMacro(filename)) {
+        file.file.resume()
+        return reply.status(400).send({
+          error: { code: 'VALIDATION_ERROR', message: 'Excel macro-enabled files are not allowed' },
+        })
+      }
+
       if (!ALLOWED_EXTENSIONS.includes(ext)) {
         file.file.resume()
         return reply.status(400).send({
           error: { code: 'VALIDATION_ERROR', message: `Unsupported file type: ${ext}. Allowed: ${ALLOWED_EXTENSIONS.join(', ')}` },
+        })
+      }
+
+      // MIME type validation
+      const allowedMimes = ALLOWED_MIMES[ext]
+      if (allowedMimes && !allowedMimes.includes(mimetype)) {
+        file.file.resume()
+        return reply.status(400).send({
+          error: { code: 'VALIDATION_ERROR', message: `Invalid MIME type for ${ext}: ${mimetype}` },
         })
       }
 
@@ -54,15 +122,34 @@ export async function uploadRoutes(app: FastifyInstance) {
           error: { code: 'VALIDATION_ERROR', message: 'File size exceeds 20 MB limit' },
         })
       }
+
+      // Content signature (magic bytes) validation for PDF/Excel
+      if (!hasValidMagicBytes(buffer, ext)) {
+        return reply.status(400).send({
+          error: { code: 'VALIDATION_ERROR', message: `File content does not match expected format for ${ext}` },
+        })
+      }
+
+      // For CSV files without proper MIME, verify they look like CSV
+      if (ext === '.csv' && mimetype === 'application/octet-stream') {
+        if (!isLikelyCsv(buffer)) {
+          return reply.status(400).send({
+            error: { code: 'VALIDATION_ERROR', message: 'File content does not appear to be a valid CSV' },
+          })
+        }
+      }
+
     } catch (err) {
       return reply.status(400).send({
         error: { code: 'VALIDATION_ERROR', message: 'Invalid upload' },
       })
     }
 
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
     const dailyCount = await db.select({ count: uploadJobs.id })
       .from(uploadJobs)
-      .where(eq(uploadJobs.userId, userId))
+      .where(and(eq(uploadJobs.userId, userId), gte(uploadJobs.createdAt, today)))
 
     if (dailyCount.length >= MAX_DAILY_UPLOADS) {
       return reply.status(429).send({
@@ -71,6 +158,8 @@ export async function uploadRoutes(app: FastifyInstance) {
     }
 
     const job = await createUploadJob(db, userId, filename, buffer.length, mimetype)
+
+    await writeAuditLog(db, userId, 'upload_create', { jobId: job.id, fileName: filename }, request.ip)
 
     try {
       await logJobEvent(db, job.id, 'queued', 0, 'Upload received')
@@ -86,17 +175,24 @@ export async function uploadRoutes(app: FastifyInstance) {
       getJobEmitter(job.id).emit('progress', { stage: 'parsing', percent: 50, message: 'Parsing transactions...' })
 
       const result = await dispatchParser(buffer, filename)
+      const parsedTransactions = result.transactions.map((txn) => {
+        const { raw: _raw, ...safeTxn } = txn
+        return {
+          ...safeTxn,
+          description: neutralizeCsvFormula(txn.description),
+        }
+      })
 
       await db.update(uploadJobs)
-        .set({ metadata: { transactions: result.transactions, candidates: result.candidates, warnings: result.warnings } })
+        .set({ metadata: { transactions: parsedTransactions, candidates: result.candidates, warnings: result.warnings } })
         .where(eq(uploadJobs.id, job.id))
 
       if (result.warnings.length > 0) {
-        await logJobEvent(db, job.id, 'preview_ready', 100, `Preview ready: ${result.transactions.length} transactions found (${result.warnings.join('; ')})`)
-        getJobEmitter(job.id).emit('progress', { stage: 'preview_ready', percent: 100, message: `Preview ready: ${result.transactions.length} transactions found (${result.warnings.join('; ')})` })
+        await logJobEvent(db, job.id, 'preview_ready', 100, `Preview ready: ${parsedTransactions.length} transactions found (${result.warnings.join('; ')})`)
+        getJobEmitter(job.id).emit('progress', { stage: 'preview_ready', percent: 100, message: `Preview ready: ${parsedTransactions.length} transactions found (${result.warnings.join('; ')})` })
       } else {
-        await logJobEvent(db, job.id, 'preview_ready', 100, `Preview ready: ${result.transactions.length} transactions found`)
-        getJobEmitter(job.id).emit('progress', { stage: 'preview_ready', percent: 100, message: `Preview ready: ${result.transactions.length} transactions found` })
+        await logJobEvent(db, job.id, 'preview_ready', 100, `Preview ready: ${parsedTransactions.length} transactions found`)
+        getJobEmitter(job.id).emit('progress', { stage: 'preview_ready', percent: 100, message: `Preview ready: ${parsedTransactions.length} transactions found` })
       }
 
       await updateJobStatus(db, job.id, 'preview_ready')
@@ -107,6 +203,7 @@ export async function uploadRoutes(app: FastifyInstance) {
       await updateJobStatus(db, job.id, 'failed', message)
       getJobEmitter(job.id).emit('progress', { stage: 'failed', percent: 0, message })
       getJobEmitter(job.id).emit('complete', { status: 'failed', error: message })
+      await writeAuditLog(db, userId, 'upload_failure', { jobId: job.id, error: message }, request.ip)
     }
 
     return reply.status(201).send({ data: { jobId: job.id } })
@@ -208,12 +305,17 @@ export async function uploadRoutes(app: FastifyInstance) {
       })
     }
 
-    const metadata = job.metadata as { transactions: unknown[]; candidates: unknown[]; warnings: string[] } | null
+    const metadata = job.metadata as { transactions: Array<{ postedAt: string; description: string; amountMinor: number; currency: string; externalFingerprint: string }>; candidates: unknown[]; warnings: string[] } | null
+
+    const transactions = (metadata?.transactions ?? []).map((txn) => ({
+      ...txn,
+      description: neutralizeCsvFormula(txn.description),
+    }))
 
     return reply.send({
       data: {
         candidates: metadata?.candidates ?? [],
-        transactions: metadata?.transactions ?? [],
+        transactions,
         warnings: metadata?.warnings ?? [],
       },
     })
@@ -255,8 +357,17 @@ export async function uploadRoutes(app: FastifyInstance) {
       })
     }
 
+    const [claimedJob] = await db.update(uploadJobs)
+      .set({ status: 'importing', error: null, updatedAt: new Date() })
+      .where(and(eq(uploadJobs.id, job.id), eq(uploadJobs.status, 'preview_ready')))
+      .returning({ id: uploadJobs.id })
+    if (!claimedJob) {
+      return reply.status(400).send({
+        error: { code: 'INVALID_STATE', message: 'Import has already started' },
+      })
+    }
+
     await logJobEvent(db, job.id, 'importing', 50, 'Importing transactions...')
-    await updateJobStatus(db, job.id, 'importing')
     getJobEmitter(job.id).emit('progress', { stage: 'importing', percent: 50, message: 'Importing transactions...' })
 
     const metadata = job.metadata as { transactions: Array<{ postedAt: string; description: string; amountMinor: number; currency: string; externalFingerprint: string }> } | null
@@ -268,12 +379,14 @@ export async function uploadRoutes(app: FastifyInstance) {
     const seenFingerprints = new Set<string>()
 
     for (const txn of parsedTransactions) {
+      const description = neutralizeCsvFormula(txn.description)
+
       if (!txn.externalFingerprint) {
         await db.insert(transactions).values({
           userId,
           accountId,
           postedAt: txn.postedAt,
-          description: txn.description,
+          description,
           amountMinor: txn.amountMinor,
           currency: txn.currency || 'USD',
         })
@@ -304,7 +417,7 @@ export async function uploadRoutes(app: FastifyInstance) {
         userId,
         accountId,
         postedAt: txn.postedAt,
-        description: txn.description,
+        description,
         amountMinor: txn.amountMinor,
         currency: txn.currency || 'USD',
         externalFingerprint: txn.externalFingerprint,
@@ -323,6 +436,8 @@ export async function uploadRoutes(app: FastifyInstance) {
       message: `Imported ${imported}, skipped ${skipped}, duplicates ${duplicates}`,
     })
     getJobEmitter(job.id).emit('complete', { status: finalStatus })
+
+    await writeAuditLog(db, userId, 'upload_confirm', { jobId, accountId, imported, skipped, duplicates }, request.ip)
 
     return reply.send({ data: { imported, skipped, duplicates } })
   })

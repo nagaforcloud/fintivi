@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import { transactions } from '@fintivi/db/schema'
 import { requireAuth } from '../middleware/require-auth.js'
 import { requireOwner } from '../middleware/require-owner.js'
+import { writeAuditLog } from '../lib/audit.js'
 import {
   listTransactions,
   getTransaction,
@@ -74,6 +75,8 @@ export async function transactionRoutes(app: FastifyInstance) {
       })
     }
 
+    await writeAuditLog(db, userId, 'transaction_update', { transactionId: id, categoryId: body.categoryId ?? null }, request.ip)
+
     return reply.send({ data: txn })
   })
 
@@ -100,6 +103,7 @@ export async function transactionRoutes(app: FastifyInstance) {
           error: { code: 'NOT_FOUND', message: 'Transaction not found' },
         })
       }
+      await writeAuditLog(db, userId, 'transaction_split', { transactionId: id, splitCount: body.splits.length }, request.ip)
       return reply.status(201).send({ data: result })
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Split failed'
@@ -122,6 +126,8 @@ export async function transactionRoutes(app: FastifyInstance) {
         error: { code: 'NOT_FOUND', message: 'Transaction not found' },
       })
     }
+
+    await writeAuditLog(db, userId, 'transaction_delete', { transactionId: id }, request.ip)
 
     return reply.send({ data: { ok: true } })
   })

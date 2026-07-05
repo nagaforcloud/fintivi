@@ -1,4 +1,9 @@
 {
   "name": "@fintivi/config",
-  "private": true
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./eslint/base": "./eslint/base.js",
+    "./*": "./*"
+  }
 }

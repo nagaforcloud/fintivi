@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto'
+import { eq, and, gte, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
+import { auditLogs, sessions, users } from '@fintivi/db/schema'
 import { env } from '../env.js'
 import {
   createPasswordUser,
@@ -69,7 +71,7 @@ export async function authRoutes(app: FastifyInstance) {
     const db = request.server.db
     const ip = request.ip
 
-    const { user, identity } = await createPasswordUser(db, email, password, market, locale, currency)
+    const { user, identity: _identity } = await createPasswordUser(db, email, password, market, locale, currency)
     const { session, refreshToken } = await createSession(db, user.id, request.headers['user-agent'], ip)
     const accessToken = app.signAccessToken({ id: user.id, market: user.market })
 
@@ -153,7 +155,7 @@ export async function authRoutes(app: FastifyInstance) {
   app.post('/otp/verify', {
     ...(env.NODE_ENV !== 'test' ? { config: { rateLimit: { max: 10, timeWindow: '15 minutes' } } } : {}),
   }, async (request, reply) => {
-    const { phone, code } = request.body as { phone: string; code: string }
+    const { phone, code, market } = request.body as { phone: string; code: string; market?: 'global' | 'india' }
 
     if (!phone || !code) {
       return reply.status(400).send({
@@ -161,10 +163,16 @@ export async function authRoutes(app: FastifyInstance) {
       })
     }
 
+    if (market !== undefined && market !== 'global' && market !== 'india') {
+      return reply.status(400).send({
+        error: { code: 'VALIDATION_ERROR', message: 'market must be global or india' },
+      })
+    }
+
     const db = request.server.db
     const ip = request.ip
 
-    const result = await verifyOtpCode(db, phone, code)
+    const result = await verifyOtpCode(db, phone, code, market)
 
     if (!result.ok) {
       return reply.status(401).send({
@@ -173,7 +181,7 @@ export async function authRoutes(app: FastifyInstance) {
     }
 
     const { session, refreshToken } = await createSession(db, result.userId, request.headers['user-agent'], ip)
-    const accessToken = app.signAccessToken({ id: result.userId, market: 'global' })
+    const accessToken = app.signAccessToken({ id: result.userId, market: result.market })
 
     await writeAuditLog(db, result.userId, 'otp_verify', {}, ip)
 
@@ -217,7 +225,13 @@ export async function authRoutes(app: FastifyInstance) {
       })
     }
 
-    const { user, identity } = await linkOrCreateGoogleUser(
+    if (!googleUser.emailVerified) {
+      return reply.status(401).send({
+        error: { code: 'GOOGLE_AUTH_FAILED', message: 'Google email must be verified' },
+      })
+    }
+
+    const { user, identity: _identity } = await linkOrCreateGoogleUser(
       db, googleUser.sub, googleUser.email, 'global', 'en', 'USD',
     )
 
@@ -226,14 +240,16 @@ export async function authRoutes(app: FastifyInstance) {
 
     await writeAuditLog(db, user.id, 'google_link', { googleSub: googleUser.sub }, ip)
 
-    return reply.send({
-      data: {
-        user: { id: user.id, email: user.email, market: user.market },
-        accessToken,
-        refreshToken,
-        sessionId: session.id,
-      },
+    const fragment = new URLSearchParams({
+      accessToken,
+      refreshToken,
+      sessionId: session.id,
+      userId: user.id,
+      email: user.email ?? '',
+      market: user.market,
     })
+
+    return reply.redirect(`${env.WEB_APP_URL}/auth/google/callback#${fragment.toString()}`, 302)
   })
 
   app.post('/refresh', async (request, reply) => {
@@ -247,6 +263,31 @@ export async function authRoutes(app: FastifyInstance) {
 
     const db = request.server.db
 
+    // Rate limit: 30 refresh attempts per user per hour using token hash to identify the user.
+    const tokenHash = createHash('sha256').update(token).digest('hex')
+    const [existing] = await db.select({ userId: sessions.userId })
+      .from(sessions)
+      .where(eq(sessions.refreshTokenHash, tokenHash))
+      .limit(1)
+
+    if (existing) {
+      const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000)
+      const [countResult] = await db.select({ count: sql<number>`count(*)::int` })
+        .from(auditLogs)
+        .where(and(
+          eq(auditLogs.userId, existing.userId),
+          eq(auditLogs.action, 'refresh_attempt'),
+          gte(auditLogs.createdAt, oneHourAgo),
+        ))
+      if ((countResult?.count ?? 0) >= 30) {
+        return reply.status(429).send({
+          error: { code: 'RATE_LIMITED', message: 'Too many refresh requests' },
+        })
+      }
+
+      await writeAuditLog(db, existing.userId, 'refresh_attempt', {}, request.ip)
+    }
+
     const result = await refreshSession(db, token)
 
     if ('error' in result) {
@@ -257,9 +298,14 @@ export async function authRoutes(app: FastifyInstance) {
       })
     }
 
+    const [user] = await db.select({ market: users.market })
+      .from(users)
+      .where(eq(users.id, result.session.userId))
+      .limit(1)
+
     const accessToken = app.signAccessToken({
       id: result.session.userId,
-      market: 'global',
+      market: user?.market ?? 'global',
     })
 
     return reply.send({

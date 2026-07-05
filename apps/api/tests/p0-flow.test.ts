@@ -373,11 +373,15 @@ describe('E2E P0: Google OAuth callback (mocked) -> /users/me', () => {
 
     globalThis.fetch = originalFetch
 
-    expect(res.statusCode).toBe(200)
-    const body = res.json()
-    expect(body.data.user.email).toBe('google-user@test.com')
-    expect(body.data.accessToken).toBeTruthy()
-    accessToken = body.data.accessToken
+    expect(res.statusCode).toBe(302)
+    const location = res.headers.location as string
+    expect(location).toContain('auth/google/callback#')
+
+    const fragment = new URLSearchParams(location.split('#')[1] ?? '')
+    const token = fragment.get('accessToken')
+    expect(token).toBeTruthy()
+    expect(fragment.get('email')).toBe('google-user@test.com')
+    accessToken = token!
   })
 
   it('GET /users/me returns the Google-authenticated user', async () => {

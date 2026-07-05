@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import { categoryRules } from '@fintivi/db/schema'
 import { requireAuth } from '../middleware/require-auth.js'
 import { requireOwner } from '../middleware/require-owner.js'
+import { writeAuditLog } from '../lib/audit.js'
 import {
   listCategories,
   createCategoryRule,
@@ -35,6 +36,7 @@ export async function categoryRoutes(app: FastifyInstance) {
     }
 
     const rule = await createCategoryRule(db, userId, body)
+    await writeAuditLog(db, userId, 'category_rule_create', { ruleId: rule.id, categoryId: body.categoryId, pattern: body.pattern }, request.ip)
     return reply.status(201).send({ data: rule })
   })
 
@@ -58,6 +60,8 @@ export async function categoryRoutes(app: FastifyInstance) {
       })
     }
 
+    await writeAuditLog(db, userId, 'category_rule_update', { ruleId: id, updates: Object.keys(body) }, request.ip)
+
     return reply.send({ data: rule })
   })
 
@@ -74,6 +78,8 @@ export async function categoryRoutes(app: FastifyInstance) {
         error: { code: 'NOT_FOUND', message: 'Category rule not found' },
       })
     }
+
+    await writeAuditLog(db, userId, 'category_rule_delete', { ruleId: id }, request.ip)
 
     return reply.send({ data: { ok: true } })
   })

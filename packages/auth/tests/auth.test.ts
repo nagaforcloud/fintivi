@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { createHash, randomUUID } from 'node:crypto';
+import { createHmac, createHash, randomUUID } from 'node:crypto';
 
 const TBL_KEY = vi.hoisted(() => '__tableName');
 
@@ -8,8 +8,9 @@ vi.mock('drizzle-orm', () => {
   const and = (...conds: any[]) => ({ type: 'and', conds });
   const gt = (c: any, v: any) => ({ type: 'gt', column: c, value: v });
   const isNull = (c: any) => ({ type: 'isNull', column: c });
+  const desc = (c: any) => ({ type: 'desc', column: c });
   const sql = ((s: TemplateStringsArray, ...vals: any[]) => ({ type: 'sql', text: s.join('?'), values: vals })) as any;
-  return { eq, and, gt, isNull, sql };
+  return { eq, and, gt, isNull, desc, sql };
 });
 
 vi.mock('@fintivi/db/schema', () => {
@@ -58,20 +59,28 @@ function createMockDb(): { store: Record<string, any[]>; db: any } {
     const name = tableName(table);
     let conds: any[] = [];
     let limitN: number | undefined;
+    let order: any | undefined;
 
     const q: any = {
       where: (...args: any[]) => {
         conds = args;
         return q;
       },
-      orderBy: () => q,
+      orderBy: (nextOrder?: any) => {
+        order = nextOrder;
+        return q;
+      },
       limit: (n: number) => {
         limitN = n;
         return q;
       },
       then: (resolve: (v: any) => void, reject: (e: any) => void) => {
         try {
-          const rows = (store[name] ?? []).filter((r: any) => conds.every((c: any) => matchCondition(c, r)));
+          let rows = (store[name] ?? []).filter((r: any) => conds.every((c: any) => matchCondition(c, r)));
+          if (order?.type === 'desc') {
+            const columnName = order.column.name;
+            rows = [...rows].sort((a: any, b: any) => (b[columnName] ?? 0) > (a[columnName] ?? 0) ? 1 : -1);
+          }
           if (isAggregate) {
             resolve([{ count: rows.length }]);
           } else {
@@ -233,16 +242,19 @@ describe('OTP hashing and verification', () => {
 describe('OTP request stores hashed values (never raw)', () => {
   beforeEach(() => {
     process.env.NODE_ENV = 'test';
+    process.env.PHONE_HASH_PEPPER = 'test-pepper-16-chars';
+    process.env.OTP_PROVIDER = 'test';
   });
 
-  it('stores phone as SHA-256 hash and code as bcrypt hash', async () => {
+  it('stores phone as HMAC-SHA256 hash and code as bcrypt hash', async () => {
+    process.env.PHONE_HASH_PEPPER = 'test-pepper-16-chars';
     const result = await requestOtp(mock.db, '+911234567890', '127.0.0.1');
     if (!result.ok) throw new Error('Expected OTP request to succeed');
 
     const storedAttempt = mock.store['otp_attempts']?.[0];
     expect(storedAttempt).toBeDefined();
 
-    const expectedPhoneHash = createHash('sha256').update('+911234567890').digest('hex');
+    const expectedPhoneHash = createHmac('sha256', 'test-pepper-16-chars').update('+911234567890').digest('hex');
     expect(storedAttempt.phoneHash).toBe(expectedPhoneHash);
     expect(storedAttempt.phoneHash).not.toBe('+911234567890');
 
@@ -263,7 +275,7 @@ describe('OTP request stores hashed values (never raw)', () => {
   });
 
   it('rate limits after exceeding threshold', async () => {
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 3; i++) {
       const r = await requestOtp(mock.db, '+911234567890', '127.0.0.1');
       expect(r.ok).toBe(true);
     }
@@ -271,11 +283,44 @@ describe('OTP request stores hashed values (never raw)', () => {
     expect(overflow.ok).toBe(false);
     if (!overflow.ok) expect(overflow.reason).toBe('rate_limited');
   });
+
+  it('rate limits after exceeding per-IP threshold across different phones', async () => {
+    for (let i = 0; i < 10; i++) {
+      const r = await requestOtp(mock.db, `+155500000${i}`, '203.0.113.10');
+      expect(r.ok).toBe(true);
+    }
+
+    const overflow = await requestOtp(mock.db, '+15550000010', '203.0.113.10');
+    expect(overflow.ok).toBe(false);
+    if (!overflow.ok) expect(overflow.reason).toBe('rate_limited');
+  });
+
+  it('does not return OTP code for non-test providers in development', async () => {
+    process.env.NODE_ENV = 'development';
+    process.env.OTP_PROVIDER = 'twilio';
+
+    const result = await requestOtp(mock.db, '+15551230000', '127.0.0.1');
+
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result).not.toHaveProperty('code');
+  });
+
+  it('does not return OTP code for test provider outside test environment', async () => {
+    process.env.NODE_ENV = 'development';
+    process.env.OTP_PROVIDER = 'test';
+
+    const result = await requestOtp(mock.db, '+15551230001', '127.0.0.1');
+
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result).not.toHaveProperty('code');
+  });
 });
 
 describe('OTP verify creates/links auth_identities', () => {
   beforeEach(() => {
     process.env.NODE_ENV = 'test';
+    process.env.PHONE_HASH_PEPPER = 'test-pepper-16-chars';
+    process.env.OTP_PROVIDER = 'test';
   });
 
   it('verifies code and creates auth_identities', async () => {
@@ -293,6 +338,19 @@ describe('OTP verify creates/links auth_identities', () => {
     const users = mock.store['users'] ?? [];
     expect(users.length).toBe(1);
     expect(users[0].phoneE164).toBe('+911234567890');
+  });
+
+  it('uses OTP market to create India-localized users', async () => {
+    const otpResult = await requestOtp(mock.db, '+919876543210', '127.0.0.1');
+    if (!otpResult.ok) throw new Error('Expected OTP request to succeed');
+
+    const verifyResult = await verifyOtpCode(mock.db, '+919876543210', otpResult.code!, 'india');
+    expect(verifyResult.ok).toBe(true);
+
+    const [user] = mock.store['users'] ?? [];
+    expect(user.market).toBe('india');
+    expect(user.locale).toBe('en-IN');
+    expect(user.currency).toBe('INR');
   });
 
   it('returns error for invalid code', async () => {

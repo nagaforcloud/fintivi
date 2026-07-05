@@ -32,6 +32,26 @@ Public. Returns service health.
 }
 ```
 
+### GET /api/v1/health/ready
+
+Public. Returns service readiness including database connectivity.
+
+**Response 200 (ready):**
+
+```json
+{
+  "data": { "ok": true, "db": "connected" }
+}
+```
+
+**Response 503 (not ready):**
+
+```json
+{
+  "error": { "code": "SERVICE_UNAVAILABLE", "message": "Database not ready" }
+}
+```
+
 ---
 
 ## Auth
@@ -117,7 +137,7 @@ Rate limit: 10 requests per 15 minutes.
 
 Public. Requests an OTP code for phone-based authentication.
 
-Rate limit: 3 requests per 15 minutes (internal rate limiter).
+Rate limit: 3 requests per phone per 15 minutes, 10 requests per IP per hour (application-level, always active).
 
 **Request:**
 
@@ -155,9 +175,12 @@ Rate limit: 10 requests per 15 minutes.
 ```json
 {
   "phone": "+15551234567",
-  "code": "123456"
+  "code": "123456",
+  "market": "global"
 }
 ```
+
+- `market` (optional): `"global"` or `"india"` — required to set market for new user signup. If omitted, defaults to `"global"`.
 
 **Response 200:**
 
@@ -210,6 +233,8 @@ Public. Handles the Google OAuth callback, exchanges the code for tokens, and re
 ### POST /api/v1/auth/refresh
 
 Public. Rotates a refresh token and returns a new token pair.
+
+Rate limit: 30 requests per user per hour.
 
 **Request:**
 
@@ -877,3 +902,21 @@ Standard error codes:
 | `RATE_LIMITED` | 429 | Too many requests |
 
 > `404 NOT_FOUND` is deliberately used instead of `403 FORBIDDEN` to avoid leaking resource existence to unauthorized users (the `requireOwner` middleware returns 404).
+
+## Web App
+
+Local web app URL:
+
+```text
+http://localhost:5173
+```
+
+Browser integration env vars:
+
+- `WEB_APP_URL`: API redirect target for browser flows. Defaults to `http://localhost:5173`.
+- `CORS_ORIGIN`: comma-separated browser origins allowed by the API. Defaults to `http://localhost:5173`.
+- `VITE_API_BASE_URL`: frontend API base URL. Defaults to `http://localhost:8001/api/v1`.
+
+### Google Callback
+
+The Google OAuth callback redirects to `{WEB_APP_URL}/auth/google/callback#accessToken=...&refreshToken=...&sessionId=...&userId=...&email=...&market=...`. The SPA parses the URL fragment, stores the tokens, and immediately removes the fragment with `history.replaceState`.
