@@ -48,7 +48,7 @@ export async function requestOtp(
 
   // Rate limit: 3 per phone per 15 minutes
   const phoneWindow = new Date(Date.now() - PHONE_RATE_WINDOW_MS);
-  const [phoneCountResult] = await db.select({ count: sql<number>`count(*)::int` })
+  const [phoneCountResult] = await db.select({ count: sql<number>`count(*)` })
     .from(otpAttempts)
     .where(and(
       eq(otpAttempts.phoneHash, phoneHash),
@@ -61,7 +61,7 @@ export async function requestOtp(
 
   // Rate limit: 10 per IP per hour
   const ipWindow = new Date(Date.now() - IP_RATE_WINDOW_MS);
-  const [ipCountResult] = await db.select({ count: sql<number>`count(*)::int` })
+  const [ipCountResult] = await db.select({ count: sql<number>`count(*)` })
     .from(otpAttempts)
     .where(and(
       eq(otpAttempts.attemptId, ipHash),

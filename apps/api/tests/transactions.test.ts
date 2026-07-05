@@ -1,13 +1,12 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { eq, and } from 'drizzle-orm'
-import { createDb } from '@fintivi/db'
 import { users, accounts, transactions, categories } from '@fintivi/db/schema'
-import { sql } from 'drizzle-orm'
+import type { Db } from '@fintivi/db/client'
 import { buildApp } from '../src/server.js'
+import { createTestDb, migrateTestDb } from './helpers'
 
-const dbUrl = process.env.DATABASE_URL!
 let app: ReturnType<typeof buildApp>
-let db: ReturnType<typeof createDb>['db']
+let db: Db
 let close: () => Promise<void>
 
 interface TestUser {
@@ -45,9 +44,10 @@ async function createTestAccount(userId: string, name: string): Promise<string> 
 }
 
 beforeAll(async () => {
-  const connection = createDb(dbUrl)
-  db = connection.db
-  close = connection.close
+  const testDb = createTestDb()
+  db = testDb.db
+  close = testDb.close
+  await migrateTestDb(db)
 
   app = buildApp({ db })
   await app.ready()
@@ -82,9 +82,6 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
-  await db.execute(sql`TRUNCATE TABLE
-    transaction_splits, transactions, accounts, category_rules, categories,
-    audit_logs, sessions, auth_identities, users RESTART IDENTITY CASCADE`)
   await app.close()
   await close()
 })

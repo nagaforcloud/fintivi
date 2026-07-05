@@ -4,7 +4,7 @@ export default defineConfig({
   test: {
     fileParallelism: false,
     env: {
-      DATABASE_URL: 'postgres://fintivi:fintivi@localhost:5432/fintivi',
+      DATABASE_URL: 'file:./data/fintivi.db',
       JWT_ACCESS_SECRET: 'a'.repeat(32),
       REFRESH_TOKEN_SECRET: 'b'.repeat(32),
       PHONE_HASH_PEPPER: 'c'.repeat(16),

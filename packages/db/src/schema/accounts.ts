@@ -1,20 +1,19 @@
-import { pgTable, text, bigint, boolean, timestamp } from 'drizzle-orm/pg-core';
-import { sql } from 'drizzle-orm';
+import { sqliteTable, text, integer } from 'drizzle-orm/sqlite-core';
 import { users } from './users';
 
-export const accounts = pgTable(
+export const accounts = sqliteTable(
   'accounts',
   {
-    id: text('id').primaryKey().default(sql`gen_random_uuid()`),
+    id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
     userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
     name: text('name').notNull(),
     type: text('type').notNull().default('checking'),
     bank: text('bank').notNull().default(''),
     currency: text('currency').notNull().default('USD'),
-    balanceMinor: bigint('balance_minor', { mode: 'number' }).notNull().default(0),
-    isActive: boolean('is_active').notNull().default(true),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    balanceMinor: integer('balance_minor').notNull().default(0),
+    isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(() => new Date()),
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(() => new Date()),
   },
 );
 

@@ -1,13 +1,13 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { createHmac } from 'node:crypto'
-import { createDb } from '@fintivi/db'
-import { eq, sql } from 'drizzle-orm'
+import { eq } from 'drizzle-orm'
 import { auditLogs } from '@fintivi/db/schema'
+import type { Db } from '@fintivi/db/client'
 import { buildApp } from '../src/server.js'
+import { createTestDb, migrateTestDb } from './helpers'
 
-const dbUrl = process.env.DATABASE_URL!
 let app: ReturnType<typeof buildApp>
-let db: ReturnType<typeof createDb>['db']
+let db: Db
 let close: () => Promise<void>
 
 function buildMultipartBody(filename: string, content: string, fieldName = 'file'): { body: Buffer; contentType: string } {
@@ -23,16 +23,15 @@ function buildMultipartBody(filename: string, content: string, fieldName = 'file
 }
 
 beforeAll(async () => {
-  const connection = createDb(dbUrl)
-  db = connection.db
-  close = connection.close
-  await db.execute(sql`TRUNCATE TABLE otp_attempts, audit_logs, sessions, auth_identities, users, upload_jobs, upload_job_events RESTART IDENTITY CASCADE`)
+  const testDb = createTestDb()
+  db = testDb.db
+  close = testDb.close
+  await migrateTestDb(db)
   app = buildApp({ db })
   await app.ready()
 })
 
 afterAll(async () => {
-  await db.execute(sql`TRUNCATE TABLE otp_attempts, audit_logs, sessions, auth_identities, users, upload_jobs, upload_job_events RESTART IDENTITY CASCADE`)
   await app.close()
   await close()
 })
@@ -138,7 +137,7 @@ describe('Sensitive values absent from logs and responses', () => {
     expect(logBody).not.toContain('Sensitive Bank')
     expect(logBody).not.toContain('127.0.0.1')
     expect(log.ipAddress).toBe(createHmac('sha256', process.env.PHONE_HASH_PEPPER!).update('127.0.0.1').digest('hex'))
-    expect(log.details).toEqual({ accountId: res.json().data.id })
+    expect(typeof log.details === 'string' ? JSON.parse(log.details) : log.details).toEqual({ accountId: res.json().data.id })
   })
 
   it('upload response does not expose raw file contents', async () => {

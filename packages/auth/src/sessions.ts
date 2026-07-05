@@ -55,7 +55,7 @@ export async function refreshSession(
     await db.insert(auditLogs).values({
       userId: existing.userId,
       action: 'refresh_token_reuse',
-      details: { sessionId: existing.id },
+      details: JSON.stringify({ sessionId: existing.id }) as never,
     });
     return { error: 'reused' };
   }

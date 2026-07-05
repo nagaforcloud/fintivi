@@ -272,7 +272,7 @@ export async function authRoutes(app: FastifyInstance) {
 
     if (existing) {
       const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000)
-      const [countResult] = await db.select({ count: sql<number>`count(*)::int` })
+      const [countResult] = await db.select({ count: sql<number>`count(*)` })
         .from(auditLogs)
         .where(and(
           eq(auditLogs.userId, existing.userId),

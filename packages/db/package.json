@@ -17,8 +17,8 @@
     "lint": "eslint ."
   },
   "dependencies": {
-    "drizzle-orm": "0.36.0",
-    "postgres": "3.4.4"
+    "@libsql/client": "^0.14.0",
+    "drizzle-orm": "0.36.0"
   },
   "devDependencies": {
     "@fintivi/config": "workspace:*",

@@ -1,10 +1,8 @@
-import { pgEnum } from 'drizzle-orm/pg-core';
-
-export const marketEnum = pgEnum('market', ['global', 'india']);
-export const providerEnum = pgEnum('provider', ['password', 'phone_otp', 'google']);
-export const categoryTypeEnum = pgEnum('category_type', ['income', 'expense', 'transfer']);
-export const matchTypeEnum = pgEnum('match_type', ['contains', 'regex', 'exact']);
-export const uploadStatusEnum = pgEnum('upload_status', [
+export const marketValues = ['global', 'india'] as const;
+export const providerValues = ['password', 'phone_otp', 'google'] as const;
+export const categoryTypeValues = ['income', 'expense', 'transfer'] as const;
+export const matchTypeValues = ['contains', 'regex', 'exact'] as const;
+export const uploadStatusValues = [
   'queued', 'validating', 'parsing', 'preview_ready', 'importing',
   'completed', 'failed', 'completed_with_warnings',
-]);
+] as const;

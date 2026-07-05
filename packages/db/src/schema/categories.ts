@@ -1,32 +1,31 @@
-import { pgTable, text, integer, boolean, timestamp } from 'drizzle-orm/pg-core';
-import { sql } from 'drizzle-orm';
-import { categoryTypeEnum, matchTypeEnum } from '../enums';
+import { sqliteTable, text, integer } from 'drizzle-orm/sqlite-core';
+import { categoryTypeValues, matchTypeValues } from '../enums';
 import { users } from './users';
 
-export const categories = pgTable(
+export const categories = sqliteTable(
   'categories',
   {
-    id: text('id').primaryKey().default(sql`gen_random_uuid()`),
+    id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
     userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }),
     name: text('name').notNull(),
-    type: categoryTypeEnum('type').notNull(),
+    type: text('type', { enum: categoryTypeValues }).notNull(),
     color: text('color'),
     icon: text('icon'),
-    isSystem: boolean('is_system').notNull().default(false),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    isSystem: integer('is_system', { mode: 'boolean' }).notNull().default(false),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(() => new Date()),
   },
 );
 
-export const categoryRules = pgTable(
+export const categoryRules = sqliteTable(
   'category_rules',
   {
-    id: text('id').primaryKey().default(sql`gen_random_uuid()`),
+    id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
     userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
     categoryId: text('category_id').notNull().references(() => categories.id, { onDelete: 'cascade' }),
     pattern: text('pattern').notNull(),
-    matchType: matchTypeEnum('match_type').notNull().default('contains'),
+    matchType: text('match_type', { enum: matchTypeValues }).notNull().default('contains'),
     priority: integer('priority').notNull().default(0),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(() => new Date()),
   },
 );
 

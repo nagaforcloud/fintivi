@@ -1,17 +1,16 @@
-import { pgTable, text, timestamp, uniqueIndex } from 'drizzle-orm/pg-core';
-import { sql } from 'drizzle-orm';
-import { providerEnum } from '../enums';
+import { sqliteTable, text, integer, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import { providerValues } from '../enums';
 import { users } from './users';
 
-export const authIdentities = pgTable(
+export const authIdentities = sqliteTable(
   'auth_identities',
   {
-    id: text('id').primaryKey().default(sql`gen_random_uuid()`),
+    id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
     userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
-    provider: providerEnum('provider').notNull(),
+    provider: text('provider', { enum: providerValues }).notNull(),
     providerSubject: text('provider_subject').notNull(),
-    verifiedAt: timestamp('verified_at', { withTimezone: true }),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    verifiedAt: integer('verified_at', { mode: 'timestamp_ms' }),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(() => new Date()),
   },
   (t) => ({
     providerSubjectUnique: uniqueIndex('auth_identities_provider_subject_unique').on(t.provider, t.providerSubject),

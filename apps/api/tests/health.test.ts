@@ -32,7 +32,7 @@ describe('GET /api/v1/health/ready', () => {
   it('returns 503 when DB readiness check fails', async () => {
     const app = await buildApp({
       db: {
-        execute: async () => { throw new Error('db unavailable') },
+        run: async () => { throw new Error('db unavailable') },
       } as never,
     })
 

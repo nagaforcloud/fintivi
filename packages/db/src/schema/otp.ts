@@ -1,17 +1,16 @@
-import { pgTable, text, integer, timestamp, index } from 'drizzle-orm/pg-core';
-import { sql } from 'drizzle-orm';
+import { sqliteTable, text, integer, index } from 'drizzle-orm/sqlite-core';
 
-export const otpAttempts = pgTable(
+export const otpAttempts = sqliteTable(
   'otp_attempts',
   {
-    id: text('id').primaryKey().default(sql`gen_random_uuid()`),
+    id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
     phoneHash: text('phone_hash').notNull(),
     attemptId: text('attempt_id').notNull(),
     codeHash: text('code_hash').notNull(),
     attempts: integer('attempts').notNull().default(0),
-    verifiedAt: timestamp('verified_at', { withTimezone: true }),
-    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    verifiedAt: integer('verified_at', { mode: 'timestamp_ms' }),
+    expiresAt: integer('expires_at', { mode: 'timestamp_ms' }).notNull(),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(() => new Date()),
   },
   (t) => ({
     phoneHashIdx: index('otp_attempts_phone_hash_idx').on(t.phoneHash),

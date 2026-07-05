@@ -5,7 +5,6 @@ import {
   categories, categoryRules,
   uploadJobs, uploadJobEvents,
   ingestionEvents, auditLogs,
-  marketEnum, providerEnum, categoryTypeEnum, matchTypeEnum, uploadStatusEnum,
 } from '../src/schema/index';
 
 describe('users schema', () => {
@@ -19,10 +18,6 @@ describe('users schema', () => {
     expect(users.currency).toBeDefined();
     expect(users.createdAt).toBeDefined();
     expect(users.updatedAt).toBeDefined();
-  });
-
-  it('id is text type', () => {
-    expect(users.id.columnType).toBe('PgText');
   });
 });
 
@@ -47,10 +42,6 @@ describe('sessions schema', () => {
     expect(sessions.expiresAt).toBeDefined();
     expect(sessions.revokedAt).toBeDefined();
     expect(sessions.createdAt).toBeDefined();
-  });
-
-  it('user_id is text type', () => {
-    expect(sessions.userId.columnType).toBe('PgText');
   });
 });
 
@@ -80,10 +71,6 @@ describe('accounts schema', () => {
     expect(accounts.createdAt).toBeDefined();
     expect(accounts.updatedAt).toBeDefined();
   });
-
-  it('user_id is text type', () => {
-    expect(accounts.userId.columnType).toBe('PgText');
-  });
 });
 
 describe('transactions schema', () => {
@@ -101,10 +88,6 @@ describe('transactions schema', () => {
     expect(transactions.raw).toBeDefined();
     expect(transactions.createdAt).toBeDefined();
     expect(transactions.updatedAt).toBeDefined();
-  });
-
-  it('user_id is text type', () => {
-    expect(transactions.userId.columnType).toBe('PgText');
   });
 });
 
@@ -153,12 +136,9 @@ describe('upload_jobs schema', () => {
     expect(uploadJobs.mime).toBeDefined();
     expect(uploadJobs.status).toBeDefined();
     expect(uploadJobs.error).toBeDefined();
+    expect(uploadJobs.metadata).toBeDefined();
     expect(uploadJobs.createdAt).toBeDefined();
     expect(uploadJobs.updatedAt).toBeDefined();
-  });
-
-  it('user_id is text type', () => {
-    expect(uploadJobs.userId.columnType).toBe('PgText');
   });
 });
 
@@ -196,41 +176,10 @@ describe('audit_logs schema', () => {
   });
 });
 
-describe('enums', () => {
-  it('has market values', () => {
-    expect(marketEnum.enumValues).toEqual(['global', 'india']);
-  });
-  it('has provider values', () => {
-    expect(providerEnum.enumValues).toEqual(['password', 'phone_otp', 'google']);
-  });
-  it('has category type values', () => {
-    expect(categoryTypeEnum.enumValues).toEqual(['income', 'expense', 'transfer']);
-  });
-  it('has match type values', () => {
-    expect(matchTypeEnum.enumValues).toEqual(['contains', 'regex', 'exact']);
-  });
-  it('has upload status values', () => {
-    expect(uploadStatusEnum.enumValues).toEqual([
-      'queued', 'validating', 'parsing', 'preview_ready', 'importing',
-      'completed', 'failed', 'completed_with_warnings',
-    ]);
-  });
-});
-
-describe('UUID text type assertions', () => {
-  it('users.id is text', () => {
-    expect(users.id.columnType).toBe('PgText');
-  });
-  it('accounts.userId is text', () => {
-    expect(accounts.userId.columnType).toBe('PgText');
-  });
-  it('transactions.userId is text', () => {
-    expect(transactions.userId.columnType).toBe('PgText');
-  });
-  it('uploadJobs.userId is text', () => {
-    expect(uploadJobs.userId.columnType).toBe('PgText');
-  });
-  it('sessions.userId is text', () => {
-    expect(sessions.userId.columnType).toBe('PgText');
-  });
+describe('column types are SQLiteText for text columns', () => {
+  it('users.id is SQLiteText', () => expect(users.id.columnType).toBe('SQLiteText'));
+  it('accounts.userId is SQLiteText', () => expect(accounts.userId.columnType).toBe('SQLiteText'));
+  it('transactions.userId is SQLiteText', () => expect(transactions.userId.columnType).toBe('SQLiteText'));
+  it('uploadJobs.userId is SQLiteText', () => expect(uploadJobs.userId.columnType).toBe('SQLiteText'));
+  it('sessions.userId is SQLiteText', () => expect(sessions.userId.columnType).toBe('SQLiteText'));
 });

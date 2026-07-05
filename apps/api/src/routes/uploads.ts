@@ -184,7 +184,7 @@ export async function uploadRoutes(app: FastifyInstance) {
       })
 
       await db.update(uploadJobs)
-        .set({ metadata: { transactions: parsedTransactions, candidates: result.candidates, warnings: result.warnings } })
+        .set({ metadata: JSON.stringify({ transactions: parsedTransactions, candidates: result.candidates, warnings: result.warnings }) as never })
         .where(eq(uploadJobs.id, job.id))
 
       if (result.warnings.length > 0) {
@@ -305,7 +305,7 @@ export async function uploadRoutes(app: FastifyInstance) {
       })
     }
 
-    const metadata = job.metadata as { transactions: Array<{ postedAt: string; description: string; amountMinor: number; currency: string; externalFingerprint: string }>; candidates: unknown[]; warnings: string[] } | null
+    const metadata = (typeof job.metadata === 'string' ? JSON.parse(job.metadata) : null) as { transactions: Array<{ postedAt: string; description: string; amountMinor: number; currency: string; externalFingerprint: string }>; candidates: unknown[]; warnings: string[] } | null
 
     const transactions = (metadata?.transactions ?? []).map((txn) => ({
       ...txn,
@@ -370,7 +370,7 @@ export async function uploadRoutes(app: FastifyInstance) {
     await logJobEvent(db, job.id, 'importing', 50, 'Importing transactions...')
     getJobEmitter(job.id).emit('progress', { stage: 'importing', percent: 50, message: 'Importing transactions...' })
 
-    const metadata = job.metadata as { transactions: Array<{ postedAt: string; description: string; amountMinor: number; currency: string; externalFingerprint: string }> } | null
+    const metadata = (typeof job.metadata === 'string' ? JSON.parse(job.metadata) : null) as { transactions: Array<{ postedAt: string; description: string; amountMinor: number; currency: string; externalFingerprint: string }> } | null
     const parsedTransactions = metadata?.transactions ?? []
 
     let imported = 0

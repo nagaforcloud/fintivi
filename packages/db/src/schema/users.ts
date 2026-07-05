@@ -1,19 +1,18 @@
-import { pgTable, text, timestamp, uniqueIndex } from 'drizzle-orm/pg-core';
-import { sql } from 'drizzle-orm';
-import { marketEnum } from '../enums';
+import { sqliteTable, text, integer, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import { marketValues } from '../enums';
 
-export const users = pgTable(
+export const users = sqliteTable(
   'users',
   {
-    id: text('id').primaryKey().default(sql`gen_random_uuid()`),
+    id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
     email: text('email'),
     phoneE164: text('phone_e164'),
     displayName: text('display_name'),
-    market: marketEnum('market').notNull(),
+    market: text('market', { enum: marketValues }).notNull(),
     locale: text('locale').notNull().default('en'),
     currency: text('currency').notNull().default('USD'),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(() => new Date()),
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(() => new Date()),
   },
   (t) => ({
     emailUnique: uniqueIndex('users_email_unique').on(t.email),

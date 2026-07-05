@@ -1,23 +1,21 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
-import { createDb } from '@fintivi/db'
-import { sql } from 'drizzle-orm'
+import type { Db } from '@fintivi/db/client'
 import { buildApp } from '../src/server.js'
+import { createTestDb, migrateTestDb } from './helpers'
 
-const dbUrl = process.env.DATABASE_URL!
 let app: ReturnType<typeof buildApp>
-let db: ReturnType<typeof createDb>['db']
+let db: Db
 let close: () => Promise<void>
 
 beforeAll(async () => {
-  const connection = createDb(dbUrl)
-  db = connection.db
-  close = connection.close
-  await db.execute(sql`TRUNCATE TABLE otp_attempts, audit_logs, sessions, auth_identities, users RESTART IDENTITY CASCADE`)
+  const testDb = createTestDb()
+  db = testDb.db
+  close = testDb.close
+  await migrateTestDb(db)
   app = buildApp({ db })
 })
 
 afterAll(async () => {
-  await db.execute(sql`TRUNCATE TABLE otp_attempts, audit_logs, sessions, auth_identities, users RESTART IDENTITY CASCADE`)
   await app.close()
   await close()
 })

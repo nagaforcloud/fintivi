@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
-import { createDb } from '@fintivi/db'
-import { sql } from 'drizzle-orm'
+import type { Db } from '@fintivi/db/client'
 import { buildApp } from '../src/server.js'
+import { createTestDb, migrateTestDb } from './helpers'
 
 vi.mock('@fintivi/auth', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@fintivi/auth')>()
@@ -17,9 +17,8 @@ vi.mock('@fintivi/auth', async (importOriginal) => {
   }
 })
 
-const dbUrl = process.env.DATABASE_URL!
 let app: ReturnType<typeof buildApp>
-let db: ReturnType<typeof createDb>['db']
+let db: Db
 let close: () => Promise<void>
 
 function buildMultipartBody(filename: string, content: string, fieldName = 'file'): { body: Buffer; contentType: string } {
@@ -38,16 +37,15 @@ const globalCsv = 'Date,Description,Amount\n2026-01-15,Amazon Purchase,-29.99\n2
 const indiaCsv = 'Transaction Date,Narration,Debit Amount,Credit Amount\n01-01-2026,UPI PAYMENT,500.00,\n02-01-2026,SALARY CREDIT,,75000.00\n03-01-2026,AMAZON PAY,1200.00,\n04-01-2026,SWIGGY ORDER,345.00,\n05-01-2026,MOBILE RECHARGE,299.00,'
 
 beforeAll(async () => {
-  const connection = createDb(dbUrl)
-  db = connection.db
-  close = connection.close
-  await db.execute(sql`TRUNCATE TABLE otp_attempts, audit_logs, sessions, auth_identities, upload_jobs, upload_job_events, transactions, accounts, category_rules, categories, users RESTART IDENTITY CASCADE`)
+  const testDb = createTestDb()
+  db = testDb.db
+  close = testDb.close
+  await migrateTestDb(db)
   app = buildApp({ db })
   await app.ready()
 })
 
 afterAll(async () => {
-  await db.execute(sql`TRUNCATE TABLE otp_attempts, audit_logs, sessions, auth_identities, upload_jobs, upload_job_events, transactions, accounts, category_rules, categories, users RESTART IDENTITY CASCADE`)
   await app.close()
   await close()
 })

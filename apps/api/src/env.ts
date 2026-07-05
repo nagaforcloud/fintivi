@@ -16,7 +16,7 @@ const PLACEHOLDER_VALUES = new Set([
 ])
 
 const envSchema = z.object({
-  DATABASE_URL: z.string().url(),
+  DATABASE_URL: z.string().default('file:./data/fintivi.db'),
   JWT_ACCESS_SECRET: z.string().min(32),
   REFRESH_TOKEN_SECRET: z.string().min(32),
   PHONE_HASH_PEPPER: z.string().min(16),

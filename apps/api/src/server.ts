@@ -39,7 +39,7 @@ export function buildApp(opts?: { db?: Db }) {
 
   app.get('/api/v1/health/ready', async (_request, reply) => {
     try {
-      await db.execute(sql`SELECT 1`)
+      await db.run(sql`SELECT 1`)
       return reply.send({ data: { ok: true, db: 'connected' } })
     } catch {
       return reply.status(503).send({

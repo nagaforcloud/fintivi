@@ -48,7 +48,7 @@ export async function writeAuditLog(
   await db.insert(auditLogs).values({
     userId,
     action,
-    details: sanitizeDetails(action, details),
+    details: JSON.stringify(sanitizeDetails(action, details)) as never,
     ipAddress: ipAddress ? hashIp(ipAddress) : null,
   })
 }
