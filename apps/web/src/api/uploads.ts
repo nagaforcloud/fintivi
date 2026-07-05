@@ -1,5 +1,6 @@
 import type { UploadPreview, UploadProgressEvent } from './types'
 import { createDefaultApiClient } from './client'
+import { loadStoredSession } from '../auth/token-storage'
 
 const baseUrl = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8001/api/v1'
 const api = createDefaultApiClient()
@@ -22,7 +23,8 @@ export function confirmUpload(jobId: string, accountId: string) {
 }
 
 export function subscribeToUploadProgress(jobId: string, handlers: { onProgress: (event: UploadProgressEvent) => void; onComplete: (event: unknown) => void; onError: () => void }) {
-  const source = new EventSource(`${baseUrl}/uploads/${jobId}/stream`)
+  const token = loadStoredSession()?.accessToken ?? ''
+  const source = new EventSource(`${baseUrl}/uploads/${jobId}/stream?access_token=${encodeURIComponent(token)}`)
   source.addEventListener('progress', (event) => handlers.onProgress(JSON.parse((event as MessageEvent).data) as UploadProgressEvent))
   source.addEventListener('complete', (event) => {
     handlers.onComplete(JSON.parse((event as MessageEvent).data) as unknown)
